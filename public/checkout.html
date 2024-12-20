@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://www.paypal.com/sdk/js?client-id=AZjwSUoPJGl3nufo2HkNmtJrqaeaWUyLhGQWDNxOWlHXP9SowmInfSaswEgtpfG29qhlQwoqdlO52yVI&currency=EUR&intent=authorize&debug=true"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 16px;
+            background: #ffffff;
+            font-family: Arial, sans-serif;
+        }
+        #paypal-button-container {
+            width: 100%;
+            min-height: 150px;
+            margin-bottom: 20px;
+        }
+        #debug-info {
+            margin-top: 20px;
+            padding: 10px;
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .debug-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+<div id="paypal-button-container"></div>
+<div id="debug-info">
+    <div class="debug-title">Debug Information:</div>
+    <pre id="debug-content"></pre>
+</div>
+
+<script>
+    function logDebug(message, data = null) {
+        const debugContent = document.getElementById('debug-content');
+        const timestamp = new Date().toISOString();
+        let logMessage = `[${timestamp}] ${message}\n`;
+        if (data) {
+            logMessage += JSON.stringify(data, null, 2) + '\n';
+        }
+        debugContent.textContent = logMessage + debugContent.textContent;
+    }
+
+    paypal.Buttons({
+        style: {
+            layout: 'vertical',
+            color:  'blue',
+            shape:  'rect',
+            label:  'pay'
+        },
+
+        createOrder: function(data, actions) {
+            logDebug('Creating PayPal order with zero amount');
+
+            return actions.order.create({
+                intent: 'AUTHORIZE',
+                purchase_units: [{
+                    amount: {
+                        currency_code: 'EUR',
+                        value: '1.00'  // PayPal requires minimum amount
+                    },
+                    description: 'Initial Authorization'
+                }],
+                application_context: {
+                    shipping_preference: 'NO_SHIPPING',
+                    user_action: 'CONTINUE',
+                    return_url: 'http://localhost:3000/success',
+                    cancel_url: 'http://localhost:3000/cancel'
+                }
+            }).then(function(orderId) {
+                logDebug('Order created successfully', { orderId: orderId });
+                return orderId;
+            }).catch(function(err) {
+                logDebug('Order creation failed', err);
+                throw err;
+            });
+        },
+
+        onApprove: function(data, actions) {
+            logDebug('Payment approved', data);
+
+            return actions.order.authorize().then(function(authorization) {
+                logDebug('Authorization successful', authorization);
+
+                const authDetails = {
+                    userId: 'test123',
+                    authToken: authorization.purchase_units[0].payments.authorizations[0].id,
+                    orderId: data.orderID,
+                    payerId: data.payerID
+                };
+
+                return fetch('http://localhost:3000/api/payment-auth', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(authDetails)
+                })
+                    .then(response => response.json())
+                    .then(result => {
+                        logDebug('Server response', result);
+                        return result;
+                    })
+                    .catch(error => {
+                        logDebug('Server error', error);
+                        throw error;
+                    });
+            });
+        },
+
+        onError: function(err) {
+            logDebug('PayPal error occurred', {
+                message: err.message,
+                stack: err.stack,
+                details: err.details || []
+            });
+        },
+
+        onCancel: function(data) {
+            logDebug('Payment cancelled by user', data);
+        }
+    }).render('#paypal-button-container')
+        .then(function() {
+            logDebug('PayPal buttons rendered successfully');
+        })
+        .catch(function(err) {
+            logDebug('Failed to render PayPal buttons', err);
+        });
+</script>
+</body>
+</html>
